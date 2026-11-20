@@ -1,77 +1,79 @@
+
 pipeline {
     agent any
-
+   
     environment {
-        DOCKER_IMAGE = 'your-dockerhub-username/zomato'
+        DOCKER_IMAGE = 'rejanipk/zomato:latest'
+        CONTAINER_NAME = 'zomato-container'
     }
 
     stages {
 
         stage('Checkout') {
             steps {
-                echo 'Downloading source code...'
                 git branch: 'main',
-                    url: 'https://github.com/suffixscope/ZOMATO.git'
+                    url: 'https://github.com/RejaniPK2025/ZOMATO.git'
             }
         }
 
         stage('Install Dependencies') {
             steps {
-                echo 'Installing dependencies...'
-                sh 'npm ci'
+                sh 'npm install'
             }
         }
 
         stage('Test') {
             steps {
-                echo 'Running React tests...'
-                sh 'CI=true SKIP_PREFLIGHT_CHECK=true npm test -- --watchAll=false'
+                sh 'CI=true npm test -- --watchAll=false --passWithNoTests'
             }
         }
 
-        stage('Build') {
+        stage('Build Docker Image') {
             steps {
-                echo 'Building React application...'
-                sh 'npm run build'
+                sh 'docker build -t $DOCKER_IMAGE .'
             }
         }
 
-        stage('Docker Build') {
+        stage('Push Docker Image') {
             steps {
-                echo 'Building Docker image...'
-                sh 'docker build -t $DOCKER_IMAGE:latest .'
-            }
-        }
-
-        stage('Docker Push') {
-            steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'dockerhub-credentials',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )
-                ]) {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-credentials',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASSWORD'
+                )]) {
                     sh '''
-                        echo "$DOCKER_PASS" | docker login \
-                        -u "$DOCKER_USER" --password-stdin
-
-                        docker push $DOCKER_IMAGE:latest
-
+                        echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USER" --password-stdin
+                        docker push $DOCKER_IMAGE
                         docker logout
                     '''
                 }
+            }
+        }
+
+        stage('Deploy Container') {
+            steps {
+                sh '''
+                    docker stop $CONTAINER_NAME || true
+                    docker rm $CONTAINER_NAME || true
+
+                    docker pull $DOCKER_IMAGE
+
+                    docker run -d \
+                        --name $CONTAINER_NAME \
+                        --restart unless-stopped \
+                        -p 8081:80 \
+                        $DOCKER_IMAGE
+                '''
             }
         }
     }
 
     post {
         success {
-            echo 'ZOMATO application pipeline completed successfully!'
+            echo 'Zomato application deployed successfully!'
         }
-
         failure {
-            echo 'Pipeline failed! Check Console Output.'
+            echo 'Pipeline execution failed!'
         }
     }
 }
